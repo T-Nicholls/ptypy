@@ -111,7 +111,6 @@ p.scans.scan_00.data.orientation = 2
 p.scans.scan_00.data.intensities = u.Param()
 p.scans.scan_00.data.intensities.file = DATFILE
 p.scans.scan_00.data.intensities.key = "data"
-p.scans.scan_00.data.intensities.live_key = "keys/data"
 
 
 p.scans.scan_00.data.positions = u.Param()
@@ -122,6 +121,7 @@ p.scans.scan_00.data.positions.fast_key = "posx"
 p.scans.scan_00.data.positions.fast_multiplier = 1e-3
 p.scans.scan_00.data.positions.live_fast_key = "keys/posx"
 p.scans.scan_00.data.positions.live_slow_key = "keys/posx"
+p.scans.scan_00.data.intensities.live_key = "keys/data"
 
 
 p.scans.scan_00.data.recorded_energy = u.Param()

@@ -20,8 +20,8 @@ class Frame():
           
     #Not the inverse of encode() since data isn't encoded there, (numpy arrays already have buffer interface)
     def decode(self):
-        self.posx = self.posx.decode()
-        self.posy = self.posy.decode()
+        self.posx = float(self.posx.decode())
+        self.posy = float(self.posy.decode())
         self.dtype = self.dtype.decode()
         self.shape = int(self.shape.decode()[1:].split(",")[0])
         self.data = np.frombuffer(self.data,dtype=self.dtype)

@@ -110,7 +110,9 @@ ptyscan_modules = ['hdf5_loader',
                    'nanomax', 
                    'nanomax_streaming', 
                    'ALS_5321', 
-                   'Bragg3dSim']
+                   'Bragg3dSim',
+                   'zmq_loader'
+                   ]
 
 # Convenience loader for ptyscan modules
 def load_ptyscan_module(module):

@@ -347,12 +347,12 @@ class ZMQLoader(PtyScan):
         #self.darkfield_laid_out_like_data = None
         #self.flatfield_field_laid_out_like_data = None
         #self.mask_laid_out_like_data = None
-        self.preview_indices = None
-        #self.framefilter = None
+        self.framefilter = None
         self._is_spectro_scan = False
         self.fhandle_intensities = None
         self.fhandle_positions_fast = None
         self.fhandle_positions_slow = None
+        self.preview_indices = None # not sure what this does 
         #self.fhandle_darkfield = None
         #self.fhandle_flatfield = None
         #self.fhandle_normalisation = None
@@ -392,6 +392,7 @@ class ZMQLoader(PtyScan):
         self._is_swmr = True
         self._prepare_intensity_and_positions()
         self._prepare_center()
+        self.compute_scan_mapping_and_trajectory(self.data_shape, self.positions_fast_shape, self.positions_slow_shape)
         
         
     def _prepare_intensity_and_positions(self):
@@ -427,6 +428,167 @@ class ZMQLoader(PtyScan):
                                self.fhandle_positions_slow[self.p.positions.live_slow_key],
                                self.fhandle_positions_fast[self.p.positions.live_fast_key]),
                                timeout=5)
+        
+        
+        
+    def compute_scan_mapping_and_trajectory(self, data_shape, positions_fast_shape, positions_slow_shape):
+        '''
+        This horrendous block of logic is all to do with making a semi-intelligent guess at what the data looks like. Copied from hdf5_loader
+        '''
+        skip = self.p.positions.skip
+        if data_shape[:-2] == positions_slow_shape == positions_fast_shape:
+            '''
+            cases covered:
+            axis_data.shape (A, B) for data.shape (A, B, frame_size_m, frame_size_n) or
+            axis_data.shape (k,) for data.shape (k, frame_size_m, frame_size_n)
+            '''
+            log(3, "Everything is wonderful, each diffraction point has a co-ordinate.")
+
+            self._ismapped = True
+            slow_axis_bounds = [0, self.positions_slow_shape[0]]
+            fast_axis_bounds = [0, self.positions_fast_shape[-1]]
+
+            set_slow_axis_bounds = self.p.positions.bounding_box.slow_axis_bounds
+            set_fast_axis_bounds = self.p.positions.bounding_box.fast_axis_bounds
+
+            if len(data_shape) == 4:
+                self._scantype = "raster"
+
+                if set_slow_axis_bounds is not None:
+                    if isinstance(set_slow_axis_bounds, int):
+                        slow_axis_bounds[0] = set_slow_axis_bounds
+                    elif isinstance(slow_axis_bounds, (tuple, list)):
+                        slow_axis_bounds = set_slow_axis_bounds
+                if set_fast_axis_bounds is not None:
+                    if isinstance(set_fast_axis_bounds, int):
+                        fast_axis_bounds[0] = set_fast_axis_bounds
+                    elif isinstance(fast_axis_bounds, (tuple, list)):
+                        fast_axis_bounds = set_fast_axis_bounds
+
+                indices = np.meshgrid(list(range(*fast_axis_bounds)), list(range(*slow_axis_bounds)))
+                self.preview_indices = np.array([indices[1][::skip,::skip].flatten(), indices[0][::skip,::skip].flatten()], dtype=int)
+                if self.framefilter is not None:
+                    self.preview_indices = self.preview_indices[:,self.framefilter[indices[1][::skip,::skip], indices[0][::skip,::skip]].flatten()]
+                self.num_frames = len(self.preview_indices[0])
+
+            else:
+                if (set_slow_axis_bounds is not None) and (set_fast_axis_bounds is not None):
+                    log(3, "Setting slow axis bounds for an arbitrary mapped scan doesn't make sense. "
+                        "We will just use the fast axis bounds.")
+                if set_fast_axis_bounds is not None:
+                    if isinstance(set_fast_axis_bounds, int):
+                        fast_axis_bounds[0] = set_fast_axis_bounds
+                    elif isinstance(fast_axis_bounds, (tuple, list)):
+                        fast_axis_bounds = set_fast_axis_bounds
+                self._scantype = "arb"
+                indices = np.array(list(range(*fast_axis_bounds)))
+                self.preview_indices = indices[::skip]
+                if self.framefilter is not None:
+                    self.preview_indices = self.preview_indices[self.framefilter[indices][::skip]]
+                self.num_frames = len(self.preview_indices)
+
+        elif ((len(positions_fast_shape)>1) and (len(positions_slow_shape)>1)) and data_shape[0] == np.prod(positions_fast_shape) == np.prod(positions_slow_shape):
+            '''
+            cases covered:
+            axis_data.shape (C, D) for data.shape (C*D, frame_size_m, frame_size_n) ,
+            '''
+            log(3, "Positions are raster, but data is a list of frames. Unpacking the data to match the positions...")
+            slow_axis_bounds = [0, self.positions_slow_shape[0]]
+            fast_axis_bounds = [0, self.positions_fast_shape[-1]]
+
+            set_slow_axis_bounds = self.p.positions.bounding_box.slow_axis_bounds
+            set_fast_axis_bounds = self.p.positions.bounding_box.fast_axis_bounds
+            if set_slow_axis_bounds is not None:
+                if isinstance(set_slow_axis_bounds, int):
+                    slow_axis_bounds[0] = set_slow_axis_bounds
+                elif isinstance(slow_axis_bounds, (tuple, list)):
+                    slow_axis_bounds = set_slow_axis_bounds
+            if set_fast_axis_bounds is not None:
+                if isinstance(set_fast_axis_bounds, int):
+                    fast_axis_bounds[0] = set_fast_axis_bounds
+                elif isinstance(fast_axis_bounds, (tuple, list)):
+                    fast_axis_bounds = set_fast_axis_bounds
+
+            indices = np.meshgrid(list(range(*fast_axis_bounds)), list(range(*slow_axis_bounds)))
+            self.preview_indices = np.array([indices[1][::skip,::skip].flatten(), indices[0][::skip,::skip].flatten()])
+            if self.framefilter:
+                log(3, "Framefilter not supported for this case")
+            self.num_frames = len(self.preview_indices[0])
+            self._ismapped = False
+            self._scantype = 'raster'
+
+        elif (len(positions_slow_shape) == 1) and (len(positions_fast_shape) == 1):
+            if data_shape[:-2] == (positions_slow_shape[0], positions_fast_shape[0]):
+                '''
+                cases covered:
+                axis_data.shape (C,) for data.shape (C, D, frame_size_m, frame_size_n) where D is the size of the other axis,
+                '''
+                log(3, "Assuming the axes are 1D and need to be meshed to match the raster style data")
+                slow_axis_bounds = [0, self.positions_slow_shape[0]]
+                fast_axis_bounds = [0, self.positions_fast_shape[0]]
+
+                set_slow_axis_bounds = self.p.positions.bounding_box.slow_axis_bounds
+                set_fast_axis_bounds = self.p.positions.bounding_box.fast_axis_bounds
+                if set_slow_axis_bounds is not None:
+                    if isinstance(set_slow_axis_bounds, int):
+                        slow_axis_bounds[0] = set_slow_axis_bounds
+                    elif isinstance(slow_axis_bounds, (tuple, list)):
+                        slow_axis_bounds = set_slow_axis_bounds
+                if set_fast_axis_bounds is not None:
+                    if isinstance(set_fast_axis_bounds, int):
+                        fast_axis_bounds[0] = set_fast_axis_bounds
+                    elif isinstance(fast_axis_bounds, (tuple, list)):
+                        fast_axis_bounds = set_fast_axis_bounds
+
+                self.fast_axis, self.slow_axis = np.meshgrid(self.fast_axis[...], self.slow_axis[...])
+
+                indices = np.meshgrid(list(range(*fast_axis_bounds)), list(range(*slow_axis_bounds)))
+                self.preview_indices = np.array([indices[1][::skip,::skip].flatten(), indices[0][::skip,::skip].flatten()], dtype=int)
+                if self.framefilter:
+                    log(3, "Framefilter not supported for this case")
+                self.num_frames = len(self.preview_indices[0])
+                self._ismapped = True
+                self._scantype = 'raster'
+
+            elif data_shape[0] == (positions_slow_shape[0] * positions_fast_shape[0]):
+                '''
+                cases covered:
+                axis_data.shape (C,) for data.shape (C*D, frame_size_m, frame_size_n) where D is the size of the other axis.
+                '''
+                slow_axis_bounds = [0,self.positions_slow_shape[0]]
+                fast_axis_bounds = [0, self.positions_fast_shape[0]]
+
+                set_slow_axis_bounds = self.p.positions.bounding_box.slow_axis_bounds
+                set_fast_axis_bounds = self.p.positions.bounding_box.fast_axis_bounds
+                if set_slow_axis_bounds is not None:
+                    if isinstance(set_slow_axis_bounds, int):
+                        slow_axis_bounds[0] = set_slow_axis_bounds
+                    elif isinstance(slow_axis_bounds, (tuple, list)):
+                        slow_axis_bounds = set_slow_axis_bounds
+                if set_fast_axis_bounds is not None:
+                    if isinstance(set_fast_axis_bounds, int):
+                        fast_axis_bounds[0] = set_fast_axis_bounds
+                    elif isinstance(fast_axis_bounds, (tuple, list)):
+                        fast_axis_bounds = set_fast_axis_bounds
+
+                self.fast_axis, self.slow_axis = np.meshgrid(self.fast_axis[...], self.slow_axis[...])
+
+                indices = np.meshgrid(list(range(*fast_axis_bounds)), list(range(*slow_axis_bounds)))
+                self.preview_indices = np.array([indices[1][::skip,::skip].flatten(), indices[0][::skip,::skip].flatten()], dtype=int)
+                if self.framefilter:
+                    log(3, "Framefilter not supported for this case")
+                self.num_frames = len(self.preview_indices[0])
+                self._ismapped = False
+                self._scantype = 'raster'
+
+            else:
+                raise IOError("I don't know what to do with these positions/data shapes")
+        else:
+            raise IOError(f"I don't know what to do with these positions/data shapes: {data_shape}, {positions_slow_shape}, {positions_fast_shape}")
+    
+        
+        
+        
         
     def _prepare_center(self):
         """
@@ -491,7 +653,7 @@ class ZMQLoader(PtyScan):
             end_of_scan = 1
             frames_accessible = int(reply[:-1]) - self.frames_loaded
             self.ready_frames += frames_accessible
-            #logging.debug(f"Final frames ready to load, {frames_accessible} frames")
+            logging.debug(f"Final frames ready to load, {frames_accessible} frames")
         else:
             end_of_scan = 0
             frames_accessible = int(reply) - self.frames_loaded
@@ -503,7 +665,6 @@ class ZMQLoader(PtyScan):
             if end_of_scan:
                 logging.debug(f"This is the final set of frames: {self.ready_frames}")
             frames_accessible = self.ready_frames #Variable to return
-            self.ready_frames = 0 #Reset to 0 for next check
             
         #Need more frames before loading
         else:
@@ -529,28 +690,33 @@ class ZMQLoader(PtyScan):
         intensities = {}
         positions = {}
         weights = {}
-        #For now, ignore indexing logic
+        
         
         self.frame_list=[] #Store loaded frames
         frames_loaded = 0 #Frames loaded local to this function call
         logging.info(f"Pulling {self.ready_frames} frames...")
+        
         #Repeat until all the ready frames have been loaded
+        ii=-1
         while frames_loaded < self.ready_frames: #Not '<=' since frames_loaded starts on 0
+            
             encoded_data = self.main_pull.recv_multipart()
             chunk_size = int(encoded_data[0].decode()) #The size of the chunk sent from preprocessing is given in the 0th index
             print(f"Pulled chunk of length {chunk_size} frames")
 
             #Reconstruct data: First (chunk_size=20) values is the actual data, then posx,posy,dtype,shape
             for i in range(1,chunk_size+1):
+                ii += 1
+                jj = self.preview_indices[ii] #dont think this is needed for now?
                 new_frame = frame.Frame(data=encoded_data[i], posx=encoded_data[i+chunk_size],
                                 posy=encoded_data[i+(chunk_size*2)],dtype=encoded_data[i+(chunk_size*3)],
                                 shape=encoded_data[i+(chunk_size*4)])
                 new_frame.decode()        
                 self.frame_list.append(new_frame) 
                 
-                intensities[i-1] = new_frame.data
-                positions[i-1] = np.array([new_frame.posx, new_frame.posy])
-                weights = np.ones(len(positions[i-1]))
+                intensities[jj+self.frames_loaded] = new_frame.data
+                positions[jj+self.frames_loaded] = np.array([new_frame.posx, new_frame.posy])
+                weights[jj+self.frames_loaded] = np.zeros(len(positions[jj+self.frames_loaded]))
                 
             frames_loaded += chunk_size   
         self.frames_loaded += frames_loaded #Update the overall frames loaded
@@ -564,6 +730,8 @@ class ZMQLoader(PtyScan):
                    
         if self.final_send:
             logging.info("All data has been loaded")
+            
+        self.ready_frames = 0 #Reset to 0 for next check
                       
         return intensities, positions, weights
     
