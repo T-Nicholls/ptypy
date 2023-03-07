@@ -26,4 +26,3 @@ class Frame():
         self.shape = int(self.shape.decode()[1:].split(",")[0])
         self.data = np.frombuffer(self.data,dtype=self.dtype)
         self.data = self.data.reshape(self.shape,self.shape)
-        
