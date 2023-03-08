@@ -6,6 +6,7 @@ Description here
 """
 import logging
 import zmq
+import pickle
 from ptypy import utils as u
 from ptypy.core.data import PtyScan
 from ptypy.experiment import register
@@ -379,7 +380,7 @@ class ZMQLoader(PtyScan):
         
         log(4, 'Waiting for metadata...')
         #Wait to recieve metadata
-        self.metadata = self.info_socket.recv()
+        self.metadata = pickle.loads(self.info_socket.recv())
         self.frames_before_load = 50 #Wait for this many frames to be preprocessed before loading in, N
         self.frames_loaded = 0
         self.final_send = False #True when preprocessing has sent over all data
@@ -398,6 +399,8 @@ class ZMQLoader(PtyScan):
         """
         Prep for meta info (energy, distance, psize)
         """
+        
+        #Energy defaults at 7.2, multiplier and offset is set in run_ptypy
         if None not in [self.p.recorded_energy.file, self.p.recorded_energy.key]:
             with h5.File(self.p.recorded_energy.file, 'r', swmr=self._is_swmr) as f:
                 self.p.energy = float(f[self.p.recorded_energy.key][()])
@@ -405,17 +408,12 @@ class ZMQLoader(PtyScan):
             self.meta.energy  = self.p.energy
             log(3, "loading energy={} from file".format(self.p.energy))
 
-        if None not in [self.p.recorded_distance.file, self.p.recorded_distance.key]:
-            with h5.File(self.p.recorded_distance.file, 'r', swmr=self._is_swmr) as f:
-                self.p.distance = float(f[self.p.recorded_distance.key][()] * self.p.recorded_distance.multiplier)
-            self.meta.distance = self.p.distance
-            log(3, "loading distance={} from file".format(self.p.distance))
+        #Padding, psize and distance also set in run_ptypy for now
+        self.meta.distance = self.p.distance
+        log(3, "loading distance={} from file".format(self.p.distance))
         
-        if None not in [self.p.recorded_psize.file, self.p.recorded_psize.key]:
-            with h5.File(self.p.recorded_psize.file, 'r', swmr=self._is_swmr) as f:
-                self.p.psize = float(f[self.p.recorded_psize.key][()] * self.p.recorded_psize.multiplier)
-            self.info.psize = self.p.psize
-            log(3, "loading psize={} from file".format(self.p.psize))
+        self.info.psize = self.p.psize
+        log(3, "loading psize={} from file".format(self.p.psize))
 
         if self.p.padding is None:
             self.pad = np.array([0,0,0,0])
@@ -428,25 +426,29 @@ class ZMQLoader(PtyScan):
         
     def _prepare_intensity_and_positions(self):
         """
-        Prep for loading intensity and position data and keyfollower. Copied from hdf5 and swmr loaders
+        Uses metadata sent over ZMQ to set intensity dtype, data shapes, total number of frames.
+        and energy. Also sets parameters for distance, psize and padding based off settings in
+        run_ptypy
         """
         print("prepare intensity")
-        self.fhandle_intensities = h5.File(self.p.intensities.file, 'r', swmr=self._is_swmr)
-        self.intensities = self.fhandle_intensities[self.p.intensities.key]
-        self.intensities_dtype = self.intensities.dtype
-        self.data_shape = self.intensities.shape
-
-        self.fhandle_positions_fast = h5.File(self.p.positions.file, 'r', swmr=self._is_swmr)
-        self.fast_axis = self.fhandle_positions_fast[self.p.positions.fast_key]
-        self.positions_fast_shape = np.squeeze(self.fast_axis).shape if self.fast_axis.ndim > 2 else self.fast_axis.shape
-
-        self.fhandle_positions_slow = h5.File(self.p.positions.file, 'r', swmr=self._is_swmr)
-        self.slow_axis = self.fhandle_positions_slow[self.p.positions.slow_key]
-        self.positions_slow_shape = np.squeeze(self.slow_axis).shape if self.slow_axis.ndim > 2 else self.slow_axis.shape
-
+        # self.fhandle_intensities = h5.File(self.p.intensities.file, 'r', swmr=self._is_swmr)
+        # self.intensities = self.fhandle_intensities[self.p.intensities.key]
+        # self.intensities_dtype = self.intensities.dtype
+        # self.data_shape = self.intensities.shape
+        self.intensities_dtype = np.array([]).astype('uint16').dtype
+        self.data_shape = self.metadata["shape"]
+        # self.fhandle_positions_fast = h5.File(self.p.positions.file, 'r', swmr=self._is_swmr)
+        # self.fast_axis = self.fhandle_positions_fast[self.p.positions.fast_key]
+        #self.positions_fast_shape = np.squeeze(self.fast_axis).shape if self.fast_axis.ndim > 2 else self.fast_axis.shape
+        self.positions_fast_shape = self.metadata["positions fast shape"]
+        # self.fhandle_positions_slow = h5.File(self.p.positions.file, 'r', swmr=self._is_swmr)
+        # self.slow_axis = self.fhandle_positions_slow[self.p.positions.slow_key]
+        #self.positions_slow_shape = np.squeeze(self.slow_axis).shape if self.slow_axis.ndim > 2 else self.slow_axis.shape
+        self.positions_slow_shape = self.metadata["positions slow shape"]
         # TODO: this needs to be sent as metadata
         # and the sender should take care of complexity regarding sprial vs. grid scans
-        self.num_frames = int(self.data_shape[0])
+        # self.num_frames = int(self.data_shape[0])
+        self.num_frames = self.data_shape[0]
         
         log(3, "The shape of the \n\tdiffraction intensities is: {}\n\tslow axis data:{}\n\tfast axis data:{}".format(self.data_shape,
                                                                                                                       self.positions_slow_shape,
