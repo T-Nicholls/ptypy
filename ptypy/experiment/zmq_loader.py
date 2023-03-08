@@ -16,7 +16,8 @@ import numpy as np
 import h5py as h5
 from swmr_tools import KeyFollower
 from ptypy.utils.verbose import log
-logging.basicConfig(level=logging.DEBUG)
+#logging.basicConfig(level=logging.DEBUG)
+import sys
 
 @register()
 class ZMQLoader(PtyScan):
@@ -278,11 +279,6 @@ class ZMQLoader(PtyScan):
       Can be None, (dimx, dimy), or dim. In the latter case shape will be (dim, dim).
     userlevel = 1
 
-    [outer_index]
-    type = int
-    default = None
-    help = Index for outer dimension (e.g. tomography, spectro scans), default is None.
-
     [padding]
     type = int, tuple, list
     default = None
@@ -348,7 +344,6 @@ class ZMQLoader(PtyScan):
         self.flatfield_field_laid_out_like_data = None
         self.mask_laid_out_like_data = None
         self.framefilter = None
-        self._is_spectro_scan = False
         self.fhandle_intensities = None
         self.fhandle_positions_fast = None
         self.fhandle_positions_slow = None
@@ -358,18 +353,7 @@ class ZMQLoader(PtyScan):
         self.fhandle_normalisation = None
         self.fhandle_mask = None
         self._is_swmr = False
-        
-        # self._params_check()
-        self._prepare_intensity_and_positions()
-        # self._prepare_framefilter()
-        # self.compute_scan_mapping_and_trajectory(self.data_shape, self.positions_fast_shape, self.positions_slow_shape)
-        # self._prepare_meta_info()
-        # self._prepare_darkfield()
-        # self._prepare_flatfield()
-        # self._prepare_mask()
-        # self._prepare_normalisation()
-        self._prepare_center()
-        
+                
         #------------------Stuff specific to ZMQ logic---------------------:
         self.context = zmq.Context()
         #Create socket to request some information and ask for metadata
@@ -388,58 +372,53 @@ class ZMQLoader(PtyScan):
         heartbeat_timer = time() #Do something if no heartbeats are detected after some time
         
         #Create poller for event loop
-        self.poller = zmq.Poller()
-        self.poller.register(self.main_pull, zmq.POLLIN)
-        self.poller.register(self.heartbeat_socket, zmq.POLLIN)
-        self.poller.register(self.info_socket, zmq.POLLIN)
+        # self.poller = zmq.Poller()
+        # self.poller.register(self.main_pull, zmq.POLLIN)
+        # self.poller.register(self.heartbeat_socket, zmq.POLLIN)
+        # self.poller.register(self.info_socket, zmq.POLLIN)
         
-        logging.debug('Waiting for metadata...')
+        log(4, 'Waiting for metadata...')
         #Wait to recieve metadata
         self.metadata = self.info_socket.recv()
         self.frames_before_load = 50 #Wait for this many frames to be preprocessed before loading in, N
         self.frames_loaded = 0
         self.final_send = False #True when preprocessing has sent over all data
-        logging.debug("Metadata recieved")
-        self._is_swmr = True
-        #self.ii=-1
+        log(4, "Metadata recieved")
+
+        # TODO: Use metadata here to do the preparations
+        # no need to look at any files
+        self._prepare_intensity_and_positions()
+        self._prepare_center()
+
+        # Need to set meta info here, i.e energy, distance, psize etc.
         
         
-    
     def _prepare_intensity_and_positions(self):
         """
         Prep for loading intensity and position data and keyfollower. Copied from hdf5 and swmr loaders
         """
+        print("prepare intensity")
         self.fhandle_intensities = h5.File(self.p.intensities.file, 'r', swmr=self._is_swmr)
         self.intensities = self.fhandle_intensities[self.p.intensities.key]
         self.intensities_dtype = self.intensities.dtype
         self.data_shape = self.intensities.shape
-        if self._is_spectro_scan and self.p.outer_index is not None:
-            self.data_shape = tuple(np.array(self.data_shape)[1:])
 
         self.fhandle_positions_fast = h5.File(self.p.positions.file, 'r', swmr=self._is_swmr)
         self.fast_axis = self.fhandle_positions_fast[self.p.positions.fast_key]
-        if self._is_spectro_scan and self.p.outer_index is not None:
-            self.fast_axis = self.fast_axis[self.p.outer_index]
         self.positions_fast_shape = np.squeeze(self.fast_axis).shape if self.fast_axis.ndim > 2 else self.fast_axis.shape
 
         self.fhandle_positions_slow = h5.File(self.p.positions.file, 'r', swmr=self._is_swmr)
         self.slow_axis = self.fhandle_positions_slow[self.p.positions.slow_key]
-        if self._is_spectro_scan and self.p.outer_index is not None:
-            self.slow_axis = self.slow_axis[self.p.outer_index]
         self.positions_slow_shape = np.squeeze(self.slow_axis).shape if self.slow_axis.ndim > 2 else self.slow_axis.shape
+
+        # TODO: this needs to be sent as metadata
+        # and the sender should take care of complexity regarding sprial vs. grid scans
+        self.num_frames = int(self.data_shape[0])
         
         log(3, "The shape of the \n\tdiffraction intensities is: {}\n\tslow axis data:{}\n\tfast axis data:{}".format(self.data_shape,
                                                                                                                       self.positions_slow_shape,
                                                                                                                       self.positions_fast_shape))
-        if self.p.positions.skip > 1:
-            log(3, "Skipping every {:d} positions".format(self.p.positions.skip))
             
-        self.kf = KeyFollower((self.fhandle_intensities[self.p.intensities.live_key],
-                               self.fhandle_positions_slow[self.p.positions.live_slow_key],
-                               self.fhandle_positions_fast[self.p.positions.live_fast_key]),
-                               timeout=5)
-
-        
         
     def _prepare_center(self):
         """
@@ -452,16 +431,7 @@ class ZMQLoader(PtyScan):
         self.info.auto_center = self.p.auto_center
         log(3, "center is %s, auto_center: %s" % (self.info.center, self.info.auto_center))
         log(3, "The loader will not do any cropping.")
-        
-        
-    def get_data_chunk(self, *args, **kwargs):
-        self.kf.refresh()
-        self.intensities.refresh()
-        self.slow_axis.refresh()
-        self.fast_axis.refresh()
-        # refreshing here to update before Ptyscan.get_data_chunk calls check and load
-        return super().get_data_chunk(*args, **kwargs)
-        
+                
     def check(self, frames=None, start=None):
         """
         Use info socket to query how many frames are available.
@@ -495,37 +465,37 @@ class ZMQLoader(PtyScan):
             - 1, end of scan will be reached or is
             - None, can't say
         """
+
+        if start is None:
+            start = self.framestart
+        
+        if frames is None:
+            frames = self.min_frames
         
         self.info_socket.send(b'f') #Asks how many frames are ready to load
-        
-        reply = self.info_socket.recv().decode()
-        if reply[-1] == ('f'): #Final chunk of data has been sent
-            self.final_send = 0
-            end_of_scan = 1
-            frames_accessible = int(reply[:-1]) - self.frames_loaded
-            self.ready_frames += frames_accessible
-            logging.debug(f"Final frames ready to load, {frames_accessible} frames")
+
+        reply = int(self.info_socket.recv().decode())        
+        available = min(int(reply), self.num_frames)
+        new_frames = available - start
+        # not reached expected nr. of frames
+        if new_frames <= frames:
+            # but its last chunk of scan so load it anyway
+            if available == self.num_frames:
+                frames_accessible = new_frames    
+                end_of_scan = 1
+            # otherwise, do nothing
+            else:
+                end_of_scan = 0
+                frames_accessible = 0
+        # reached expected nr. of frames
         else:
             end_of_scan = 0
-            frames_accessible = int(reply) - self.frames_loaded
-            self.ready_frames = self.ready_frames + frames_accessible
-            
-        #Minimum frames ready to load
-        if self.ready_frames >= self.frames_before_load or end_of_scan:
-            logging.debug(f"Next {self.ready_frames} frames are ready to load")
-            if end_of_scan:
-                logging.debug(f"This is the final set of frames: {self.ready_frames}")
-            frames_accessible = self.ready_frames #Variable to return
-            
-        #Need more frames before loading
-        else:
-            frames_accessible = 0
-   
+            frames_accessible = frames
+
+        log(3, f"frames = {frames}, start = {start}, available = {available}, frames_accessible = {frames_accessible}, end_of_scan = {end_of_scan}, reply = {reply}, new_frames = {new_frames}")
         return frames_accessible, end_of_scan
-            
-            
-        
-        
+
+    
     def load(self, indices):
         """
         Loads data according to node specific scanpoint indices that have
@@ -541,56 +511,43 @@ class ZMQLoader(PtyScan):
         intensities = {}
         positions = {}
         weights = {}
-        
-        
-        self.frame_list=[] #Store loaded frames
-        frames_loaded = 0 #Frames loaded local to this function call
-        logging.info(f"Pulling {self.ready_frames} frames...")
-        
-        #Repeat until all the ready frames have been loaded
-        
-        while frames_loaded < self.ready_frames: #Not '<=' since frames_loaded starts on 0
-            
-            encoded_data = self.main_pull.recv_multipart()
-            chunk_size = int(encoded_data[0].decode()) #The size of the chunk sent from preprocessing is given in the 0th index
-            print(f"Pulled chunk of length {chunk_size} frames")
 
-            #Reconstruct data: First (chunk_size=20) values is the actual data, then posx,posy,dtype,shape
-            for i in range(1,chunk_size+1):
-                #self.ii += 1
-                new_frame = frame.Frame(data=encoded_data[i], posx=encoded_data[i+chunk_size],
-                                posy=encoded_data[i+(chunk_size*2)],dtype=encoded_data[i+(chunk_size*3)],
-                                shape=encoded_data[i+(chunk_size*4)])
-                new_frame.decode()        
-                self.frame_list.append(new_frame) 
-                
-                intensities[i+self.frames_loaded-1] = new_frame.data
-                positions[i+self.frames_loaded-1] = np.array([new_frame.posy * self.p.positions.slow_multiplier,
-                                                              new_frame.posx * self.p.positions.fast_multiplier]) 
-                weights[i+self.frames_loaded-1] = np.ones(len(intensities[i+self.frames_loaded-1]))
-                
-            frames_loaded += chunk_size
-            self.frames_loaded += chunk_size #Update the overall frames loaded
+        log(4, "Loading...")
+        log(4, f"indices = {indices}")
+        read_chunk = True
+        chunk_size = 0
+        
+        for ind in indices:
+
+            log(4, f"Reading index = {ind}, read_chunk = {read_chunk}")
             
-        #Debugging
-        try:
-            logging.info(f"{self.ready_frames} frames have been loaded, 1st frame contains data {self.frame_list[0].data} and shape \
-                {self.frame_list[0].shape}")   
-        except:
-            IndexError 
-                   
-        if self.final_send:
-            logging.info("All data has been loaded")
+            if read_chunk:
+                encoded_data = self.main_pull.recv_multipart()
+                # The size of the chunk sent from preprocessing is given in the 0th index
+                chunk_size = int(encoded_data[0].decode()) 
+                print(f"Pulled chunk of length {chunk_size} frames")
+
+            read_chunk = not ((ind + 1) % chunk_size)
+
+            i = (ind % chunk_size) + 1
             
-        self.ready_frames = 0 #Reset to 0 for next check
+            new_frame = frame.Frame(data=encoded_data[i], posx=encoded_data[i+chunk_size],
+                                    posy=encoded_data[i+(chunk_size*2)],dtype=encoded_data[i+(chunk_size*3)],
+                                    shape=encoded_data[i+(chunk_size*4)])
+            new_frame.decode()
+
+            intensities[ind] = new_frame.data
+            positions[ind] = np.array([new_frame.posy * self.p.positions.slow_multiplier,
+                                       new_frame.posx * self.p.positions.fast_multiplier]) 
+            weights[ind] = np.ones(len(intensities[ind]))
                       
         return intensities, positions, weights
     
-    def event_loop(self):
-        """
-        Main loop
-        """
-        finished = False
-        while finished == False:
-            self.check()
-            finished = self.load()
+    # def event_loop(self):
+    #     """
+    #     Main loop
+    #     """
+    #     finished = False
+    #     while finished == False:
+    #         self.check()
+    #         finished = self.load()
