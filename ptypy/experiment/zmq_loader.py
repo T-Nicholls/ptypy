@@ -389,8 +389,40 @@ class ZMQLoader(PtyScan):
         # no need to look at any files
         self._prepare_intensity_and_positions()
         self._prepare_center()
+        self._prepare_meta_info()
 
-        # Need to set meta info here, i.e energy, distance, psize etc.
+        
+    # Need to set meta info here, i.e energy, distance, psize etc.
+    def _prepare_meta_info(self):
+        """
+        Prep for meta info (energy, distance, psize)
+        """
+        if None not in [self.p.recorded_energy.file, self.p.recorded_energy.key]:
+            with h5.File(self.p.recorded_energy.file, 'r', swmr=self._is_swmr) as f:
+                self.p.energy = float(f[self.p.recorded_energy.key][()])
+            self.p.energy = self.p.energy * self.p.recorded_energy.multiplier + self.p.recorded_energy.offset
+            self.meta.energy  = self.p.energy
+            log(3, "loading energy={} from file".format(self.p.energy))
+
+        if None not in [self.p.recorded_distance.file, self.p.recorded_distance.key]:
+            with h5.File(self.p.recorded_distance.file, 'r', swmr=self._is_swmr) as f:
+                self.p.distance = float(f[self.p.recorded_distance.key][()] * self.p.recorded_distance.multiplier)
+            self.meta.distance = self.p.distance
+            log(3, "loading distance={} from file".format(self.p.distance))
+        
+        if None not in [self.p.recorded_psize.file, self.p.recorded_psize.key]:
+            with h5.File(self.p.recorded_psize.file, 'r', swmr=self._is_swmr) as f:
+                self.p.psize = float(f[self.p.recorded_psize.key][()] * self.p.recorded_psize.multiplier)
+            self.info.psize = self.p.psize
+            log(3, "loading psize={} from file".format(self.p.psize))
+
+        if self.p.padding is None:
+            self.pad = np.array([0,0,0,0])
+            log(3, "No padding will be applied.")
+        else:
+            self.pad = np.array(self.p.padding, dtype=int)
+            assert self.pad.size == 4, "self.p.padding needs to of size 4"
+            log(3, "Padding the detector frames by {}".format(self.p.padding))
         
         
     def _prepare_intensity_and_positions(self):
