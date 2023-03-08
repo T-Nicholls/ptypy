@@ -359,7 +359,7 @@ class ZMQLoader(PtyScan):
         #Create socket to request some information and ask for metadata
         self.info_socket = self.context.socket(zmq.REQ) 
         self.info_socket.connect("tcp://127.0.0.1:5556")
-        self.info_socket.send(b"m")
+        self.info_socket.send(b"MetadataRequest")
         
         #Socket to pull main data
         self.main_pull = self.context.socket(zmq.PULL)
@@ -390,6 +390,7 @@ class ZMQLoader(PtyScan):
         self._prepare_intensity_and_positions()
         self._prepare_center()
         self._prepare_meta_info()
+        self.close_sockets = False
 
         
     # Need to set meta info here, i.e energy, distance, psize etc.
@@ -450,8 +451,7 @@ class ZMQLoader(PtyScan):
         log(3, "The shape of the \n\tdiffraction intensities is: {}\n\tslow axis data:{}\n\tfast axis data:{}".format(self.data_shape,
                                                                                                                       self.positions_slow_shape,
                                                                                                                       self.positions_fast_shape))
-            
-        
+
     def _prepare_center(self):
         """
         define how data should be loaded (center, cropping). Copied from hdf5 loader
@@ -503,31 +503,37 @@ class ZMQLoader(PtyScan):
         
         if frames is None:
             frames = self.min_frames
-        
-        self.info_socket.send(b'f') #Asks how many frames are ready to load
-
-        reply = int(self.info_socket.recv().decode())        
-        available = min(int(reply), self.num_frames)
-        new_frames = available - start
-        # not reached expected nr. of frames
-        if new_frames <= frames:
-            # but its last chunk of scan so load it anyway
-            if available == self.num_frames:
-                frames_accessible = new_frames    
-                end_of_scan = 1
-            # otherwise, do nothing
+            
+        if not self.close_sockets:
+            self.info_socket.send(b'FrameNumberRequest') #Asks how many frames are ready to load
+            reply = int(self.info_socket.recv().decode())        
+            available = min(int(reply), self.num_frames)
+            new_frames = available - start
+            # not reached expected nr. of frames
+            if new_frames <= frames:
+                # but its last chunk of scan so load it anyway
+                if available == self.num_frames:
+                    frames_accessible = new_frames    
+                    end_of_scan = 1
+                    self.close_sockets = True
+                # otherwise, do nothing
+                else:
+                    end_of_scan = 0
+                    frames_accessible = 0
+            # reached expected nr. of frames
             else:
                 end_of_scan = 0
-                frames_accessible = 0
-        # reached expected nr. of frames
+                frames_accessible = frames
+
+            log(3, f"frames = {frames}, start = {start}, available = {available}, frames_accessible = {frames_accessible}, end_of_scan = {end_of_scan}, reply = {reply}, new_frames = {new_frames}")
+            return frames_accessible, end_of_scan
+        
+        #Data has been loaded and sockets have been closed, so don't send another request
         else:
-            end_of_scan = 0
-            frames_accessible = frames
-
-        log(3, f"frames = {frames}, start = {start}, available = {available}, frames_accessible = {frames_accessible}, end_of_scan = {end_of_scan}, reply = {reply}, new_frames = {new_frames}")
-        return frames_accessible, end_of_scan
-
-    
+            frames_accessible = 0
+            end_of_scan = 1
+            return frames_accessible, end_of_scan
+            
     def load(self, indices):
         """
         Loads data according to node specific scanpoint indices that have
@@ -572,14 +578,13 @@ class ZMQLoader(PtyScan):
             positions[ind] = np.array([new_frame.posy * self.p.positions.slow_multiplier,
                                        new_frame.posx * self.p.positions.fast_multiplier]) 
             weights[ind] = np.ones(len(intensities[ind]))
-                      
+            
+        #Final data has been loaded, so sockets are now safe to close and preprocessing script can quit
+        if self.close_sockets:
+            self.info_socket.send(b'FinalFrameRecieved')
+            self.info_socket.recv() #Ensure message is recieved before closing
+            self.context.destroy()
+            
+            
         return intensities, positions, weights
     
-    # def event_loop(self):
-    #     """
-    #     Main loop
-    #     """
-    #     finished = False
-    #     while finished == False:
-    #         self.check()
-    #         finished = self.load()
