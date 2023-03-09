@@ -327,12 +327,34 @@ class ZMQLoader(PtyScan):
         
         # Initialise other variables...
         self._scantype = None
+        self._ismapped = None
+        self.intensities = None
         self.intensities_dtype = None
+        self.slow_axis = None
+        self.fast_axis = None
         self.data_shape = None
         self.positions_fast_shape = None
         self.positions_slow_shape = None
-        self._is_swmr = True
-        
+        self.ready_frames = 0
+        self.darkfield = None
+        self.flatfield = None
+        self.mask = None
+        self.normalisation = None
+        self.normalisation_laid_out_like_positions = None
+        self.darkfield_laid_out_like_data = None
+        self.flatfield_field_laid_out_like_data = None
+        self.mask_laid_out_like_data = None
+        self.framefilter = None
+        self.fhandle_intensities = None
+        self.fhandle_positions_fast = None
+        self.fhandle_positions_slow = None
+        self.preview_indices = None
+        self.fhandle_darkfield = None
+        self.fhandle_flatfield = None
+        self.fhandle_normalisation = None
+        self.fhandle_mask = None
+        self._is_swmr = False
+                
         #------------------Stuff specific to ZMQ logic---------------------:
         self.context = zmq.Context()
         #Create socket to request some information and ask for metadata
@@ -378,11 +400,13 @@ class ZMQLoader(PtyScan):
         Prep for meta info (energy, distance, psize)
         """
         
-        #multiplier and offset is set in run_ptypy
-        self.p.energy = self.metadata['energy']
-        self.p.energy = self.p.energy * self.p.recorded_energy.multiplier + self.p.recorded_energy.offset
-        self.meta.energy  = self.p.energy
-        log(3, "loading energy={} from file".format(self.p.energy))
+        #Energy defaults at 7.2, multiplier and offset is set in run_ptypy
+        if None not in [self.p.recorded_energy.file, self.p.recorded_energy.key]:
+            with h5.File(self.p.recorded_energy.file, 'r', swmr=self._is_swmr) as f:
+                self.p.energy = float(f[self.p.recorded_energy.key][()])
+            self.p.energy = self.p.energy * self.p.recorded_energy.multiplier + self.p.recorded_energy.offset
+            self.meta.energy  = self.p.energy
+            log(3, "loading energy={} from file".format(self.p.energy))
 
         #Padding, psize and distance also set in run_ptypy for now
         self.meta.distance = self.p.distance
