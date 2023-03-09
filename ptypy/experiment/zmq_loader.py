@@ -65,25 +65,11 @@ class ZMQLoader(PtyScan):
             * axis_data.shape (C,) for data.shape (C*D, frame_size_m, frame_size_n) where D is the
               size of the other axis.
 
-    [positions.file]
-    default = None
-    type = str
-    help = Path to the file containing the position information. If None use "intensities.file".
-
-    [positions.slow_key]
-    default = None
-    type = str
-    help = Key to the slow-axis positions entry in the hdf5 file.
 
     [positions.slow_multiplier]
     default = 1.0
     type = float
     help = Multiplicative factor that converts motor positions to metres.
-
-    [positions.fast_key]
-    default = None
-    type = str
-    help = Key to the fast-axis positions entry in the hdf5 file.
 
     [positions.fast_multiplier]
     default = 1.0
@@ -110,115 +96,11 @@ class ZMQLoader(PtyScan):
     type = int
     help = Skip a given number of positions (in each direction)
 
-    [mask]
-    default =
-    type = Param
-    help = Parameters for mask data. 
-    doc = The shape of the loaded data is assumed to be (frame_size_m, frame_size_n) or the same
-          shape of the full intensities data.
-
-    [mask.file]
-    default = None
-    type = str
-    help = Path to the file containing the diffraction mask.
-
-    [mask.key]
-    default = None
-    type = str
-    help = Key to the mask entry in the hdf5 file.
-
-    [mask.invert]
-    default = False
-    type = bool
-    help = Inverting the mask
-
-    [flatfield]
-    default =
-    type = Param
-    help = Parameters for flatfield data.
-    doc = The shape of the loaded data is assumed to be (frame_size_m, frame_size_n) or the same
-            shape of the full intensities data.
-
-    [flatfield.file]
-    default = None
-    type = str
-    help = Path to the file containing the diffraction flatfield.
-
-    [flatfield.key]
-    default = None
-    type = str
-    help = Key to the flatfield entry in the hdf5 file.
-
-    [darkfield]
-    default =
-    type = Param
-    help = Parameters for darkfield data. 
-    doc = The shape is assumed to be (frame_size_m, frame_size_n) or the same
-          shape of the full intensities data.
-
-    [darkfield.file]
-    default = None
-    type = str
-    help = Path to the file containing the diffraction darkfield.
-
-    [darkfield.key]
-    default = None
-    type = str
-    help = Key to the darkfield entry in the hdf5 file.
-
-    [normalisation]
-    default =
-    type = Param
-    help = Parameters for per-point normalisation (i.e. ion chamber reading).
-    doc = The shape of loaded data is assumed to have the same dimensionality as data.shape[:-2]
-
-    [normalisation.file]
-    default = None
-    type = str
-    help = This is the path to the file containing the normalisation information. If None then we try to find the information
-            in the "intensities.file" location.
-
-    [normalisation.key]
-    default = None
-    type = str
-    help = This is the key to the normalisation entry in the hdf5 file.
-
-    [normalisation.sigma]
-    default = 3
-    type = int
-    help = Sigma value applied for automatic detection of outliers in the normalisation dataset.
-
-    [framefilter]
-    default = 
-    type = Param
-    help = Parameters for the filtering of frames
-    doc = The shape of loaded data is assumed to hvae the same dimensionality as data.shape[:-2]
-
-    [framefilter.file]
-    default = None
-    type = str
-    help = This is the path to the file containing the filter information. 
-
-    [framefilter.key]
-    default = None
-    type = str
-    help = This is the key to the frame filter entry in the hdf5 file.
-
     [recorded_energy]
     default =
     type = Param
     help = This parameter contains information if we are use the recorded energy rather than as a parameter.
             It should be a scalar value.
-    
-    [recorded_energy.file]
-    default = None
-    type = str
-    help = This is the path to the file containing the recorded_energy.
-
-    [recorded_energy.key]
-    default = None
-    type = str
-    help = This is the key to the recorded_energy entry in the hdf5 file.
 
     [recorded_energy.multiplier]
     default = 1.0
@@ -235,16 +117,6 @@ class ZMQLoader(PtyScan):
     type = Param
     help = This parameter contains information if we are use the recorded distance to the detector rather than as a parameter,
             It should be a scalar value.
-    
-    [recorded_distance.file]
-    default = None
-    type = str
-    help = This is the path to the file containing the recorded_distance between sample and detector.
-
-    [recorded_distance.key]
-    default = None
-    type = str
-    help = This is the key to the recorded_distance entry in the hdf5 file.
 
     [recorded_distance.multiplier]
     default = 1.0
@@ -256,16 +128,6 @@ class ZMQLoader(PtyScan):
     type = Param
     help = This parameter contains information if we are use the recorded psize to the detector rather than as a parameter,
             It should be a scalar value.
-    
-    [recorded_psize.file]
-    default = None
-    type = str
-    help = This is the path to the file containing the recorded detector psize.
-
-    [recorded_psize.key]
-    default = None
-    type = str
-    help = This is the key to the recorded_psize entry in the hdf5 file.
 
     [recorded_psize.multiplier]
     default = 1.0
@@ -292,31 +154,6 @@ class ZMQLoader(PtyScan):
     help = Switch for loading data from electron ptychography experiments.
     doc = If True, the energy provided in keV will be considered as electron energy 
           and converted to electron wavelengths.   
-          
-          
-    [intensities.live_key]
-    default = None
-    type = str
-    help = Key to live keys inside the intensities file
-    doc = Live_keys indicate where the data collection has progressed to.
-          They are zero at the scan start, but non-zero when the position
-          is complete.
-
-    [positions.live_fast_key]
-    default = None
-    type = str
-    help = Key to live key for fast axis inside the positions file
-    doc = Live_keys indicate where the data collection has progressed to.
-          They are zero at the scan start, but non-zero when the position
-          is complete.
-
-    [positions.live_slow_key]
-    default = None
-    type = str
-    help = Key to live key for slow axis inside the positions file
-    doc = Live_keys indicate where the data collection has progressed to.
-          They are zero at the scan start, but non-zero when the position
-          is complete.
            
     """
     
@@ -400,23 +237,12 @@ class ZMQLoader(PtyScan):
         and energy. Also sets parameters for distance, psize and padding based off settings in
         run_ptypy
         """
-        print("prepare intensity")
-        # self.fhandle_intensities = h5.File(self.p.intensities.file, 'r', swmr=self._is_swmr)
-        # self.intensities = self.fhandle_intensities[self.p.intensities.key]
-        # self.intensities_dtype = self.intensities.dtype
-        # self.data_shape = self.intensities.shape
+
         self.intensities_dtype = np.array([]).astype('uint16').dtype
         self.data_shape = self.metadata["shape"]
         self.p.shape = self.data_shape[1:]
         self.info.shape = self.p.shape
-        
-        # self.fhandle_positions_fast = h5.File(self.p.positions.file, 'r', swmr=self._is_swmr)
-        # self.fast_axis = self.fhandle_positions_fast[self.p.positions.fast_key]
-        #self.positions_fast_shape = np.squeeze(self.fast_axis).shape if self.fast_axis.ndim > 2 else self.fast_axis.shape
         self.positions_fast_shape = self.metadata["positions fast shape"]
-        # self.fhandle_positions_slow = h5.File(self.p.positions.file, 'r', swmr=self._is_swmr)
-        # self.slow_axis = self.fhandle_positions_slow[self.p.positions.slow_key]
-        #self.positions_slow_shape = np.squeeze(self.slow_axis).shape if self.slow_axis.ndim > 2 else self.slow_axis.shape
         self.positions_slow_shape = self.metadata["positions slow shape"]
         # TODO: this needs to be sent as metadata
         # and the sender should take care of complexity regarding sprial vs. grid scans
