@@ -327,34 +327,12 @@ class ZMQLoader(PtyScan):
         
         # Initialise other variables...
         self._scantype = None
-        self._ismapped = None
-        self.intensities = None
         self.intensities_dtype = None
-        self.slow_axis = None
-        self.fast_axis = None
         self.data_shape = None
         self.positions_fast_shape = None
         self.positions_slow_shape = None
-        self.ready_frames = 0
-        self.darkfield = None
-        self.flatfield = None
-        self.mask = None
-        self.normalisation = None
-        self.normalisation_laid_out_like_positions = None
-        self.darkfield_laid_out_like_data = None
-        self.flatfield_field_laid_out_like_data = None
-        self.mask_laid_out_like_data = None
-        self.framefilter = None
-        self.fhandle_intensities = None
-        self.fhandle_positions_fast = None
-        self.fhandle_positions_slow = None
-        self.preview_indices = None
-        self.fhandle_darkfield = None
-        self.fhandle_flatfield = None
-        self.fhandle_normalisation = None
-        self.fhandle_mask = None
-        self._is_swmr = False
-                
+        self._is_swmr = True
+        
         #------------------Stuff specific to ZMQ logic---------------------:
         self.context = zmq.Context()
         #Create socket to request some information and ask for metadata
@@ -371,12 +349,6 @@ class ZMQLoader(PtyScan):
         self.heartbeat_socket.setsockopt(zmq.SUBSCRIBE, b'hb')
         self.heartbeat_socket.connect("tcp://127.0.0.1:5557")
         heartbeat_timer = time() #Do something if no heartbeats are detected after some time
-        
-        #Create poller for event loop
-        # self.poller = zmq.Poller()
-        # self.poller.register(self.main_pull, zmq.POLLIN)
-        # self.poller.register(self.heartbeat_socket, zmq.POLLIN)
-        # self.poller.register(self.info_socket, zmq.POLLIN)
         
         log(4, 'Waiting for metadata...')
         #Wait to recieve metadata
@@ -400,13 +372,11 @@ class ZMQLoader(PtyScan):
         Prep for meta info (energy, distance, psize)
         """
         
-        #Energy defaults at 7.2, multiplier and offset is set in run_ptypy
-        if None not in [self.p.recorded_energy.file, self.p.recorded_energy.key]:
-            with h5.File(self.p.recorded_energy.file, 'r', swmr=self._is_swmr) as f:
-                self.p.energy = float(f[self.p.recorded_energy.key][()])
-            self.p.energy = self.p.energy * self.p.recorded_energy.multiplier + self.p.recorded_energy.offset
-            self.meta.energy  = self.p.energy
-            log(3, "loading energy={} from file".format(self.p.energy))
+        #multiplier and offset is set in run_ptypy
+        self.p.energy = self.metadata['energy']
+        self.p.energy = self.p.energy * self.p.recorded_energy.multiplier + self.p.recorded_energy.offset
+        self.meta.energy  = self.p.energy
+        log(3, "loading energy={} from file".format(self.p.energy))
 
         #Padding, psize and distance also set in run_ptypy for now
         self.meta.distance = self.p.distance
@@ -437,6 +407,9 @@ class ZMQLoader(PtyScan):
         # self.data_shape = self.intensities.shape
         self.intensities_dtype = np.array([]).astype('uint16').dtype
         self.data_shape = self.metadata["shape"]
+        self.p.shape = self.data_shape[1:]
+        self.info.shape = self.p.shape
+        
         # self.fhandle_positions_fast = h5.File(self.p.positions.file, 'r', swmr=self._is_swmr)
         # self.fast_axis = self.fhandle_positions_fast[self.p.positions.fast_key]
         #self.positions_fast_shape = np.squeeze(self.fast_axis).shape if self.fast_axis.ndim > 2 else self.fast_axis.shape
