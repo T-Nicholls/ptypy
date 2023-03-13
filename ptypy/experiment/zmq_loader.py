@@ -14,8 +14,6 @@ from ptypy.experiment import frame
 from time import time
 from time import sleep
 import numpy as np
-import h5py as h5
-from swmr_tools import KeyFollower
 from ptypy.utils.verbose import log
 #logging.basicConfig(level=logging.DEBUG)
 import sys
@@ -40,16 +38,6 @@ class ZMQLoader(PtyScan):
     doc = Data shapes can be either (A, B, frame_size_m, frame_size_n) or (C, frame_size_m, frame_size_n).
           It is assumed in this latter case that the fast axis in the scan corresponds
           the fast axis on disc (i.e. C-ordered layout).
-
-    [intensities.file]
-    default = None
-    type = str
-    help = Path to the file containing the diffraction intensities.
-
-    [intensities.key]
-    default = None
-    type = str
-    help = Key to the intensities entry in the hdf5 file.
 
     [positions]
     default =
@@ -195,8 +183,6 @@ class ZMQLoader(PtyScan):
         self.final_send = False #True when preprocessing has sent over all data
         log(4, "Metadata recieved")
 
-        # TODO: Use metadata here to do the preparations
-        # no need to look at any files
         self._prepare_intensity_and_positions()
         self._prepare_center()
         self._prepare_meta_info()
@@ -247,7 +233,17 @@ class ZMQLoader(PtyScan):
         # TODO: this needs to be sent as metadata
         # and the sender should take care of complexity regarding sprial vs. grid scans
         # self.num_frames = int(self.data_shape[0])
-        self.num_frames = self.data_shape[0]
+        
+        #TODO: Metadata should send num_frames instead of also working it out here
+        if len(self.data_shape) == 3:
+            self.num_frames = self.data_shape[0]
+        elif(len(self.data_shape) == 4):
+            self.num_frames = self.data_shape[0]*self.data_shape[1]
+        else:
+            #TODO: make this a proper error
+            print("Other dimensions not yet implemented")
+            quit()
+            
         
         log(3, "The shape of the \n\tdiffraction intensities is: {}\n\tslow axis data:{}\n\tfast axis data:{}".format(self.data_shape,
                                                                                                                       self.positions_slow_shape,
@@ -384,8 +380,9 @@ class ZMQLoader(PtyScan):
         if self.close_sockets:
             self.info_socket.send(b'FinalFrameRecieved')
             self.info_socket.recv() #Ensure message is recieved before closing
-            self.context.destroy()
+            self.context.destroy() #End all ZMQ communications
             
             
         return intensities, positions, weights
     
+
