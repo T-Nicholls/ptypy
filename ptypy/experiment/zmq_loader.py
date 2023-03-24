@@ -4,7 +4,6 @@ Description here
     :copyright: Copyright 2014 by the PTYPY team, see AUTHORS.
     :license: see LICENSE for details.
 """
-import logging
 import zmq
 import pickle
 from ptypy import utils as u
@@ -16,7 +15,6 @@ from time import sleep
 import numpy as np
 from ptypy.utils.verbose import log
 #logging.basicConfig(level=logging.DEBUG)
-import sys
 
 @register()
 class ZMQLoader(PtyScan):
@@ -162,17 +160,17 @@ class ZMQLoader(PtyScan):
         self.context = zmq.Context()
         #Create socket to request some information and ask for metadata
         self.info_socket = self.context.socket(zmq.REQ) 
-        self.info_socket.connect("tcp://127.0.0.1:5556")
+        self.info_socket.connect("tcp://172.23.166.25:7556")
         self.info_socket.send(b"MetadataRequest")
         
         #Socket to pull main data
         self.main_pull = self.context.socket(zmq.PULL)
-        self.main_pull.connect("tcp://127.0.0.1:5555")
+        self.main_pull.connect("tcp://172.23.166.25:7555")
         
         #Socket to recieve heartbeats
         self.heartbeat_socket = self.context.socket(zmq.SUB)
         self.heartbeat_socket.setsockopt(zmq.SUBSCRIBE, b'hb')
-        self.heartbeat_socket.connect("tcp://127.0.0.1:5557")
+        self.heartbeat_socket.connect("tcp://172.23.166.25:7557")
         heartbeat_timer = time() #Do something if no heartbeats are detected after some time
         
         log(4, 'Waiting for metadata...')
@@ -189,7 +187,7 @@ class ZMQLoader(PtyScan):
         self.close_sockets = False
 
         
-    # Need to set meta info here, i.e energy, distance, psize etc.
+    # Set meta info here, i.e energy, distance, psize etc.
     def _prepare_meta_info(self):
         """
         Prep for meta info (energy, distance, psize)
@@ -230,9 +228,6 @@ class ZMQLoader(PtyScan):
         self.info.shape = self.p.shape
         self.positions_fast_shape = self.metadata["positions fast shape"]
         self.positions_slow_shape = self.metadata["positions slow shape"]
-        # TODO: this needs to be sent as metadata
-        # and the sender should take care of complexity regarding sprial vs. grid scans
-        # self.num_frames = int(self.data_shape[0])
         
         #TODO: Metadata should send num_frames instead of also working it out here
         if len(self.data_shape) == 3:
@@ -240,7 +235,7 @@ class ZMQLoader(PtyScan):
         elif(len(self.data_shape) == 4):
             self.num_frames = self.data_shape[0]*self.data_shape[1]
         else:
-            #TODO: make this a proper error
+            #Should make this a proper error
             print("Other dimensions not yet implemented")
             quit()
             
@@ -304,12 +299,12 @@ class ZMQLoader(PtyScan):
         if not self.close_sockets:
             self.info_socket.send(b'FrameNumberRequest') #Asks how many frames are ready to load
             reply = int(self.info_socket.recv().decode())        
-            available = min(int(reply), self.num_frames)
-            new_frames = available - start
+            self.available = min(int(reply), self.num_frames)
+            new_frames = self.available - start
             # not reached expected nr. of frames
             if new_frames <= frames:
                 # but its last chunk of scan so load it anyway
-                if available == self.num_frames:
+                if self.available == self.num_frames:
                     frames_accessible = new_frames    
                     end_of_scan = 1
                     self.close_sockets = True
@@ -322,7 +317,7 @@ class ZMQLoader(PtyScan):
                 end_of_scan = 0
                 frames_accessible = frames
 
-            log(3, f"frames = {frames}, start = {start}, available = {available}, frames_accessible = {frames_accessible}, end_of_scan = {end_of_scan}, reply = {reply}, new_frames = {new_frames}")
+            log(3, f"frames = {frames}, start = {start}, self.available = {self.available}, frames_accessible = {frames_accessible}, end_of_scan = {end_of_scan}, reply = {reply}, new_frames = {new_frames}")
             return frames_accessible, end_of_scan
         
         #Data has been loaded and sockets have been closed, so don't send another request
@@ -353,7 +348,6 @@ class ZMQLoader(PtyScan):
         chunk_size = 0
         
         for ind in indices:
-
             log(4, f"Reading index = {ind}, read_chunk = {read_chunk}")
             
             if read_chunk:
