@@ -139,8 +139,20 @@ class ZMQLoader(PtyScan):
     default = False
     help = Switch for loading data from electron ptychography experiments.
     doc = If True, the energy provided in keV will be considered as electron energy 
-          and converted to electron wavelengths.   
-           
+          and converted to electron wavelengths.
+
+    [ip_address]
+    type = str
+    default = '127.0.0.1'
+    help = The ip address to listen to for incoming frames.
+    doc = The ip address that the preprocessing script is broadcasting the data on.
+
+    [port]
+    type = int
+    default = 7555
+    help = The port at which to listen for incoming frames.
+    doc = The port that the preprocessing script is broadcasting the data on.
+
     """
     
     def __init__(self, pars=None, **kwargs):
@@ -160,17 +172,17 @@ class ZMQLoader(PtyScan):
         self.context = zmq.Context()
         #Create socket to request some information and ask for metadata
         self.info_socket = self.context.socket(zmq.REQ) 
-        self.info_socket.connect("tcp://172.23.166.25:7556")
+        self.info_socket.connect(f"tcp://{self.p.ip_address}:{self.p.port + 1}")
         self.info_socket.send(b"MetadataRequest")
         
         #Socket to pull main data
         self.main_pull = self.context.socket(zmq.PULL)
-        self.main_pull.connect("tcp://172.23.166.25:7555")
+        self.main_pull.connect(f"tcp://{self.p.ip_address}:{self.p.port}")
         
         #Socket to recieve heartbeats
         self.heartbeat_socket = self.context.socket(zmq.SUB)
         self.heartbeat_socket.setsockopt(zmq.SUBSCRIBE, b'hb')
-        self.heartbeat_socket.connect("tcp://172.23.166.25:7557")
+        self.heartbeat_socket.connect(f"tcp://{self.p.ip_address}:{self.p.port + 2}")
         heartbeat_timer = time() #Do something if no heartbeats are detected after some time
         
         log(4, 'Waiting for metadata...')
